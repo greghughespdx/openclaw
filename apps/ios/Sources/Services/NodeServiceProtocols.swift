@@ -34,6 +34,10 @@ protocol LocationServicing: Sendable {
     func stopLocationUpdates()
     func startMonitoringSignificantLocationChanges(onUpdate: @escaping @Sendable (CLLocation) -> Void)
     func stopMonitoringSignificantLocationChanges()
+    // Background location monitoring (our additions)
+    var onLocationUpdate: ((CLLocation) -> Void)? { get set }
+    func startBackgroundMonitoring()
+    func stopBackgroundMonitoring()
 }
 
 protocol DeviceStatusServicing: Sendable {

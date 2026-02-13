@@ -25,6 +25,8 @@ struct SettingsTab: View {
     @AppStorage("talk.voiceDirectiveHint.enabled") private var talkVoiceDirectiveHintEnabled: Bool = true
     @AppStorage("camera.enabled") private var cameraEnabled: Bool = true
     @AppStorage("location.enabledMode") private var locationEnabledModeRaw: String = OpenClawLocationMode.off.rawValue
+    @AppStorage("location.preciseEnabled") private var locationPreciseEnabled: Bool = true
+    @AppStorage("location.backgroundReporting") private var locationBackgroundReporting: Bool = false
     @AppStorage("screen.preventSleep") private var preventSleep: Bool = true
     @AppStorage("gateway.preferredStableID") private var preferredGatewayStableID: String = ""
     @AppStorage("gateway.lastDiscoveredStableID") private var lastDiscoveredGatewayStableID: String = ""
@@ -304,6 +306,13 @@ struct SettingsTab: View {
                             "Prevent Sleep",
                             isOn: self.$preventSleep,
                             help: "Keeps the screen awake while OpenClaw is open.")
+
+                        Toggle("Report Location in Background", isOn: self.$locationBackgroundReporting)
+                            .disabled(self.locationMode != .always)
+
+                        Text("Always requires system permission. Background reporting sends periodic location updates to the gateway.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
 
                         DisclosureGroup("Advanced") {
                             self.featureToggle(

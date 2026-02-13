@@ -99,6 +99,7 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UIBackgroundModes:
           - audio
+          - location
           - remote-notification
         NSLocalNetworkUsageDescription: OpenClaw discovers and connects to your OpenClaw gateway on the local network.
         NSAppTransportSecurity:

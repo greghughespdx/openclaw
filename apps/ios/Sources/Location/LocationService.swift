@@ -16,6 +16,8 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     private var isStreaming = false
     private var significantLocationCallback: (@Sendable (CLLocation) -> Void)?
     private var isMonitoringSignificantChanges = false
+    // Background location monitoring callback (our addition)
+    var onLocationUpdate: ((CLLocation) -> Void)?
 
     override init() {
         super.init()
@@ -82,6 +84,16 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             self.locationContinuation = cont
             self.manager.requestLocation()
         }
+    }
+
+    func startBackgroundMonitoring() {
+        self.manager.allowsBackgroundLocationUpdates = true
+        self.manager.pausesLocationUpdatesAutomatically = false
+        self.manager.startMonitoringSignificantLocationChanges()
+    }
+
+    func stopBackgroundMonitoring() {
+        self.manager.stopMonitoringSignificantLocationChanges()
     }
 
     private func awaitAuthorizationChange() async -> CLAuthorizationStatus {
@@ -179,7 +191,7 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
                 } else {
                     cont.resume(throwing: Error.unavailable)
                 }
-                // Don't return — also forward to significant-change callback below
+                // Don't return — also forward to significant-change callback and AsyncStream below
                 // so both consumers receive updates when both are active.
             }
             if let callback = self.significantLocationCallback, let latest = locs.last {
@@ -187,6 +199,10 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
             }
             if let latest = locs.last, let updates = self.updatesContinuation {
                 updates.yield(latest)
+            }
+            // Also notify background monitoring callback
+            if let callback = self.onLocationUpdate, let latest = locs.last {
+                callback(latest)
             }
         }
     }

@@ -62,7 +62,9 @@ final class GatewayConnectionController {
     func setScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .background:
-            self.discovery.stop()
+            if !self.shouldMaintainBackgroundConnection() {
+                self.discovery.stop()
+            }
         case .active, .inactive:
             self.discovery.start()
             self.attemptAutoReconnectIfNeeded()
@@ -70,6 +72,16 @@ final class GatewayConnectionController {
             self.discovery.start()
             self.attemptAutoReconnectIfNeeded()
         }
+    }
+
+    private func shouldMaintainBackgroundConnection() -> Bool {
+        let locationModeRaw = UserDefaults.standard.string(forKey: "location.enabledMode") ?? "off"
+        guard let locationMode = OpenClawLocationMode(rawValue: locationModeRaw),
+              locationMode == .always else { return false }
+        let bgReporting = UserDefaults.standard.bool(forKey: "location.backgroundReporting")
+        guard bgReporting else { return false }
+        let status = CLLocationManager().authorizationStatus
+        return status == .authorizedAlways
     }
 
     func allowAutoConnectAgain() {
@@ -83,7 +95,6 @@ final class GatewayConnectionController {
         self.discovery.start()
         self.updateFromDiscovery()
     }
-
 
     /// Returns `nil` when a connect attempt was started, otherwise returns a user-facing error.
     func connectWithDiagnostics(_ gateway: GatewayDiscoveryModel.DiscoveredGateway) async -> String? {

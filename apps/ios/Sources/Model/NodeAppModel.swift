@@ -87,7 +87,7 @@ final class NodeAppModel {
     private let notificationCenter: NotificationCentering
     let voiceWake = VoiceWakeManager()
     let talkMode: TalkModeManager
-    private let locationService: any LocationServicing
+    private var locationService: any LocationServicing
     private let deviceStatusService: any DeviceStatusServicing
     private let photosService: any PhotosServicing
     private let contactsService: any ContactsServicing
@@ -276,7 +276,12 @@ final class NodeAppModel {
             let shouldKeepTalkActive = keepTalkActive && self.talkMode.isEnabled
             self.backgroundTalkKeptActive = shouldKeepTalkActive
             self.backgroundTalkSuspended = self.talkMode.suspendForBackground(keepActive: shouldKeepTalkActive)
+            // Start background location reporting if enabled
+            if self.shouldReportLocationInBackground() {
+                self.startBackgroundLocationReporting()
+            }
         case .active, .inactive:
+            self.stopBackgroundLocationReporting()
             self.isBackgrounded = false
             if self.operatorConnected {
                 self.startGatewayHealthMonitor()
@@ -1544,6 +1549,46 @@ private extension NodeAppModel {
         // iOS settings now expose a single location mode control.
         // Default location tool precision stays high unless a command explicitly requests balanced.
         true
+    }
+
+    private func shouldReportLocationInBackground() -> Bool {
+        let mode = self.locationMode()
+        guard mode == .always else { return false }
+        let bgReporting = UserDefaults.standard.bool(forKey: "location.backgroundReporting")
+        guard bgReporting else { return false }
+        let status = self.locationService.authorizationStatus()
+        return status == .authorizedAlways
+    }
+
+    private func startBackgroundLocationReporting() {
+        self.locationService.onLocationUpdate = { [weak self] location in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.sendLocationUpdate(location)
+            }
+        }
+        self.locationService.startBackgroundMonitoring()
+    }
+
+    private func stopBackgroundLocationReporting() {
+        self.locationService.stopBackgroundMonitoring()
+        self.locationService.onLocationUpdate = nil
+    }
+
+    private func sendLocationUpdate(_ location: CLLocation) async {
+        let isPrecise = self.locationService.accuracyAuthorization() == .fullAccuracy
+        let payload = OpenClawLocationPayload(
+            lat: location.coordinate.latitude,
+            lon: location.coordinate.longitude,
+            accuracyMeters: location.horizontalAccuracy,
+            altitudeMeters: location.verticalAccuracy >= 0 ? location.altitude : nil,
+            speedMps: location.speed >= 0 ? location.speed : nil,
+            headingDeg: location.course >= 0 ? location.course : nil,
+            timestamp: ISO8601DateFormatter().string(from: location.timestamp),
+            isPrecise: isPrecise,
+            source: "background")
+        guard let json = try? Self.encodePayload(payload) else { return }
+        await self.nodeGateway.sendEvent(event: "location.update", payloadJSON: json)
     }
 
     static func decodeParams<T: Decodable>(_ type: T.Type, from json: String?) throws -> T {

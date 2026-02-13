@@ -27,6 +27,7 @@ struct SettingsTab: View {
     @AppStorage("location.enabledMode") private var locationEnabledModeRaw: String = OpenClawLocationMode.off.rawValue
     @AppStorage("location.preciseEnabled") private var locationPreciseEnabled: Bool = true
     @AppStorage("location.backgroundReporting") private var locationBackgroundReporting: Bool = false
+    @AppStorage("location.highResWhenCharging") private var locationHighResWhenCharging: Bool = false
     @AppStorage("screen.preventSleep") private var preventSleep: Bool = true
     @AppStorage("gateway.preferredStableID") private var preferredGatewayStableID: String = ""
     @AppStorage("gateway.lastDiscoveredStableID") private var lastDiscoveredGatewayStableID: String = ""
@@ -310,7 +311,10 @@ struct SettingsTab: View {
                         Toggle("Report Location in Background", isOn: self.$locationBackgroundReporting)
                             .disabled(self.locationMode != .always)
 
-                        Text("Always requires system permission. Background reporting sends periodic location updates to the gateway.")
+                        Toggle("High-Resolution When Charging", isOn: self.$locationHighResWhenCharging)
+                            .disabled(self.locationMode != .always || !self.locationBackgroundReporting)
+
+                        Text("Always requires system permission. Background reporting sends periodic location updates to the gateway. When charging, high-resolution mode uses GPS instead of significant location changes.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
 

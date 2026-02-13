@@ -38,6 +38,8 @@ protocol LocationServicing: Sendable {
     var onLocationUpdate: ((CLLocation) -> Void)? { get set }
     func startBackgroundMonitoring()
     func stopBackgroundMonitoring()
+    func startHighResMonitoring(distanceFilter: CLLocationDistance)
+    func stopHighResMonitoring()
 }
 
 protocol DeviceStatusServicing: Sendable {

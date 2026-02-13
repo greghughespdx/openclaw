@@ -96,6 +96,20 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         self.manager.stopMonitoringSignificantLocationChanges()
     }
 
+    func startHighResMonitoring(distanceFilter: CLLocationDistance = 50) {
+        self.manager.allowsBackgroundLocationUpdates = true
+        self.manager.pausesLocationUpdatesAutomatically = false
+        self.manager.desiredAccuracy = kCLLocationAccuracyBest
+        self.manager.distanceFilter = distanceFilter
+        self.manager.stopMonitoringSignificantLocationChanges()
+        self.manager.startUpdatingLocation()
+    }
+
+    func stopHighResMonitoring() {
+        self.manager.stopUpdatingLocation()
+        self.manager.distanceFilter = kCLDistanceFilterNone
+    }
+
     private func awaitAuthorizationChange() async -> CLAuthorizationStatus {
         await withCheckedContinuation { cont in
             self.authContinuation = cont

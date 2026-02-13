@@ -1,3 +1,4 @@
+import AVFoundation
 import OpenClawChatUI
 import OpenClawKit
 import OpenClawProtocol
@@ -103,6 +104,9 @@ final class NodeAppModel {
     private var backgroundTalkKeptActive = false
     private var backgroundedAt: Date?
     private var reconnectAfterBackgroundArmed = false
+    private var batteryObserver: NSObjectProtocol?
+    private var carPlayObserver: NSObjectProtocol?
+    private(set) var isCarPlayConnected: Bool = false
 
     private var gatewayConnected = false
     private var operatorConnected = false
@@ -149,6 +153,7 @@ final class NodeAppModel {
         self.talkMode = talkMode
         self.apnsDeviceTokenHex = UserDefaults.standard.string(forKey: Self.apnsDeviceTokenUserDefaultsKey)
         GatewayDiagnostics.bootstrap()
+        self.setupCarPlayDetection()
 
         self.voiceWake.configure { [weak self] cmd in
             guard let self else { return }
@@ -1561,18 +1566,82 @@ private extension NodeAppModel {
     }
 
     private func startBackgroundLocationReporting() {
+        UIDevice.current.isBatteryMonitoringEnabled = true
         self.locationService.onLocationUpdate = { [weak self] location in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 await self.sendLocationUpdate(location)
             }
         }
-        self.locationService.startBackgroundMonitoring()
+        self.batteryObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.batteryStateDidChangeNotification,
+            object: nil,
+            queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isBackgrounded else { return }
+                self.updateLocationMonitoringForPowerState()
+            }
+        }
+        self.updateLocationMonitoringForPowerState()
     }
 
     private func stopBackgroundLocationReporting() {
         self.locationService.stopBackgroundMonitoring()
+        self.locationService.stopHighResMonitoring()
         self.locationService.onLocationUpdate = nil
+        if let observer = self.batteryObserver {
+            NotificationCenter.default.removeObserver(observer)
+            self.batteryObserver = nil
+        }
+    }
+
+    private func updateLocationMonitoringForPowerState() {
+        let highResEnabled = UserDefaults.standard.bool(forKey: "location.highResWhenCharging")
+        let isCharging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
+
+        if highResEnabled && isCharging {
+            self.locationService.stopBackgroundMonitoring()
+            self.locationService.startHighResMonitoring(distanceFilter: 50)
+        } else {
+            self.locationService.stopHighResMonitoring()
+            self.locationService.startBackgroundMonitoring()
+        }
+    }
+
+    private func setupCarPlayDetection() {
+        self.updateCarPlayStatus()
+        self.carPlayObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.updateCarPlayStatus()
+            }
+        }
+    }
+
+    private func updateCarPlayStatus() {
+        let route = AVAudioSession.sharedInstance().currentRoute
+        let wasConnected = self.isCarPlayConnected
+        self.isCarPlayConnected = route.outputs.contains { $0.portType == .carAudioDigital }
+        if self.isCarPlayConnected != wasConnected {
+            Task {
+                await self.sendCarPlayStatusEvent()
+            }
+        }
+    }
+
+    private func sendCarPlayStatusEvent() async {
+        struct CarPlayPayload: Codable {
+            var connected: Bool
+            var timestamp: String
+        }
+        let payload = CarPlayPayload(
+            connected: self.isCarPlayConnected,
+            timestamp: ISO8601DateFormatter().string(from: Date()))
+        guard let json = try? Self.encodePayload(payload) else { return }
+        await self.nodeGateway.sendEvent(event: "device.carplay", payloadJSON: json)
     }
 
     private func sendLocationUpdate(_ location: CLLocation) async {

@@ -14,6 +14,9 @@ packages:
     path: ../shared/OpenClawKit
   Swabble:
     path: ../../Swabble
+  WireGuardKit:
+    url: https://github.com/WireGuard/wireguard-apple
+    from: 1.1.3
 
 schemes:
   OpenClaw:
@@ -46,6 +49,8 @@ targets:
       - package: Swabble
         product: SwabbleKit
       - sdk: AppIntents.framework
+      - target: OpenClawTunnel
+        embed: true
     preBuildScripts:
       - name: SwiftFormat (lint)
         basedOnDependencyAnalysis: false
@@ -101,6 +106,8 @@ targets:
           - audio
           - location
           - remote-notification
+          - fetch
+          - processing
         NSLocalNetworkUsageDescription: OpenClaw discovers and connects to your OpenClaw gateway on the local network.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoadsInWebContent: true
@@ -229,3 +236,34 @@ targets:
         CFBundleDisplayName: OpenClawTests
         CFBundleShortVersionString: "2026.2.18"
         CFBundleVersion: "20260218"
+
+  OpenClawTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/Tunnel
+        excludes:
+          - VPNTunnelSettingsView.swift
+          - TunnelManager.swift
+    dependencies:
+      - package: WireGuardKit
+      - sdk: NetworkExtension.framework
+    settings:
+      base:
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: "$(OPENCLAW_CODE_SIGN_STYLE)"
+        DEVELOPMENT_TEAM: "$(OPENCLAW_DEVELOPMENT_TEAM)"
+        PRODUCT_BUNDLE_IDENTIFIER: ai.openclaw.ios.tunnel
+        PROVISIONING_PROFILE_SPECIFIER: "$(OPENCLAW_TUNNEL_PROFILE)"
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        CODE_SIGN_ENTITLEMENTS: OpenClawTunnel.entitlements
+    info:
+      path: Sources/Tunnel/Info.plist
+      properties:
+        CFBundleDisplayName: OpenClaw VPN
+        CFBundleShortVersionString: "2026.2.18"
+        CFBundleVersion: "20260218"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider

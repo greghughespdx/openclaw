@@ -15,6 +15,7 @@ struct SettingsTab: View {
     @Environment(NodeAppModel.self) private var appModel: NodeAppModel
     @Environment(VoiceWakeManager.self) private var voiceWake: VoiceWakeManager
     @Environment(GatewayConnectionController.self) private var gatewayController: GatewayConnectionController
+    @Environment(TunnelManager.self) private var tunnelManager: TunnelManager
     @Environment(\.dismiss) private var dismiss
     @AppStorage("node.displayName") private var displayName: String = "iOS Node"
     @AppStorage("node.instanceId") private var instanceId: String = UUID().uuidString
@@ -247,6 +248,28 @@ struct SettingsTab: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                }
+
+                Section("VPN Tunnel") {
+                    NavigationLink {
+                        VPNTunnelSettingsView()
+                            .environment(tunnelManager)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(tunnelManager.tunnelStatus == .connected ? Color.green : Color.secondary.opacity(0.35))
+                                .frame(width: 10, height: 10)
+                            Text("WireGuard VPN")
+                            Spacer()
+                            Text(tunnelStatusText)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Text("Optional encrypted tunnel for persistent background connectivity.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Device") {
@@ -568,6 +591,13 @@ struct SettingsTab: View {
         }
         let trimmed = self.appModel.gatewayStatusText.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "Not connected" : trimmed
+    }
+
+    private var tunnelStatusText: String {
+        if !tunnelManager.isConfigured {
+            return "Not configured"
+        }
+        return tunnelManager.tunnelStatus.description.capitalized
     }
 
     private func platformString() -> String {

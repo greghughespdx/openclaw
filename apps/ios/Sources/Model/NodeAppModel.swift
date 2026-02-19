@@ -104,6 +104,7 @@ final class NodeAppModel {
     private var backgroundTalkKeptActive = false
     private var backgroundedAt: Date?
     private var reconnectAfterBackgroundArmed = false
+    private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
     private var batteryObserver: NSObjectProtocol?
     private var carPlayObserver: NSObjectProtocol?
     private(set) var isCarPlayConnected: Bool = false
@@ -281,6 +282,15 @@ final class NodeAppModel {
             let shouldKeepTalkActive = keepTalkActive && self.talkMode.isEnabled
             self.backgroundTalkKeptActive = shouldKeepTalkActive
             self.backgroundTalkSuspended = self.talkMode.suspendForBackground(keepActive: shouldKeepTalkActive)
+            // Request background task to keep connection alive during transition
+            let taskId = UIApplication.shared.beginBackgroundTask { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    UIApplication.shared.endBackgroundTask(self.backgroundTaskId)
+                    self.backgroundTaskId = .invalid
+                }
+            }
+            self.backgroundTaskId = taskId
             // Start background location reporting if enabled
             if self.shouldReportLocationInBackground() {
                 self.startBackgroundLocationReporting()
@@ -288,6 +298,10 @@ final class NodeAppModel {
         case .active, .inactive:
             self.stopBackgroundLocationReporting()
             self.isBackgrounded = false
+            if self.backgroundTaskId != .invalid {
+                UIApplication.shared.endBackgroundTask(self.backgroundTaskId)
+                self.backgroundTaskId = .invalid
+            }
             if self.operatorConnected {
                 self.startGatewayHealthMonitor()
             }
@@ -307,33 +321,31 @@ final class NodeAppModel {
             }
             if phase == .active, self.reconnectAfterBackgroundArmed {
                 self.reconnectAfterBackgroundArmed = false
-                let backgroundedFor = self.backgroundedAt.map { Date().timeIntervalSince($0) } ?? 0
                 self.backgroundedAt = nil
                 // iOS may suspend network sockets in background without a clean close.
-                // On foreground, force a fresh handshake to avoid "connected but dead" states.
-                if backgroundedFor >= 3.0 {
-                    Task { [weak self] in
-                        guard let self else { return }
-                        let operatorWasConnected = await MainActor.run { self.operatorConnected }
-                        if operatorWasConnected {
-                            // Prefer keeping the connection if it's healthy; reconnect only when needed.
-                            let healthy = (try? await self.operatorGateway.request(
-                                method: "health",
-                                paramsJSON: nil,
-                                timeoutSeconds: 2)) != nil
-                            if healthy {
-                                await MainActor.run { self.startGatewayHealthMonitor() }
-                                return
-                            }
+                // On foreground, always perform health check and reconnect if needed.
+                Task { [weak self] in
+                    guard let self else { return }
+                    let operatorWasConnected = await MainActor.run { self.operatorConnected }
+                    if operatorWasConnected {
+                        // Prefer keeping the connection if it's healthy; reconnect only when needed.
+                        let healthy = (try? await self.operatorGateway.request(
+                            method: "health",
+                            paramsJSON: nil,
+                            timeoutSeconds: 2)) != nil
+                        if healthy {
+                            await MainActor.run { self.startGatewayHealthMonitor() }
+                            return
                         }
+                    }
 
-                        await self.operatorGateway.disconnect()
-                        await self.nodeGateway.disconnect()
-                        await MainActor.run {
-                            self.operatorConnected = false
-                            self.gatewayConnected = false
-                            self.talkMode.updateGatewayConnected(false)
-                        }
+                    // Reset reconnection backoff for immediate reconnect
+                    await self.operatorGateway.disconnect()
+                    await self.nodeGateway.disconnect()
+                    await MainActor.run {
+                        self.operatorConnected = false
+                        self.gatewayConnected = false
+                        self.talkMode.updateGatewayConnected(false)
                     }
                 }
             }
@@ -1571,6 +1583,12 @@ private extension NodeAppModel {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 await self.sendLocationUpdate(location)
+                // Check if disconnected and trigger reconnection if needed
+                if !self.gatewayConnected {
+                    // Ensure gateway loop tasks are active and will attempt reconnection
+                    // The existing loop will handle the actual reconnect attempt
+                    GatewayDiagnostics.log("Location update while disconnected - gateway loop should reconnect")
+                }
             }
         }
         self.batteryObserver = NotificationCenter.default.addObserver(

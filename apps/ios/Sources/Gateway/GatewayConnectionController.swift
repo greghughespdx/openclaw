@@ -39,6 +39,8 @@ final class GatewayConnectionController {
     private var didAutoConnect = false
     private var pendingServiceResolvers: [String: GatewayServiceResolver] = [:]
     private var pendingTrustConnect: (url: URL, stableID: String, isManual: Bool)?
+    private let pathMonitor = NWPathMonitor()
+    private let pathMonitorQueue = DispatchQueue(label: "ai.openclaw.pathmonitor")
 
     init(appModel: NodeAppModel, startDiscovery: Bool = true) {
         self.appModel = appModel
@@ -49,10 +51,15 @@ final class GatewayConnectionController {
 
         self.updateFromDiscovery()
         self.observeDiscovery()
+        self.startNetworkPathMonitoring()
 
         if startDiscovery {
             self.discovery.start()
         }
+    }
+
+    deinit {
+        self.pathMonitor.cancel()
     }
 
     func setDiscoveryDebugLoggingEnabled(_ enabled: Bool) {
@@ -68,6 +75,9 @@ final class GatewayConnectionController {
         case .active, .inactive:
             self.discovery.start()
             self.attemptAutoReconnectIfNeeded()
+            if phase == .active {
+                self.refreshPermissions()
+            }
         @unknown default:
             self.discovery.start()
             self.attemptAutoReconnectIfNeeded()
@@ -898,6 +908,31 @@ final class GatewayConnectionController {
 
     private func appVersion() -> String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    }
+
+    private func startNetworkPathMonitoring() {
+        self.pathMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard path.status == .satisfied else { return }
+                // Network became available - attempt reconnection if disconnected
+                guard let appModel = self.appModel else { return }
+                guard !appModel.gatewayConnected else { return }
+                guard appModel.gatewayAutoReconnectEnabled else { return }
+                // Trigger reconnection through the existing loop mechanism
+                self.attemptAutoReconnectIfNeeded()
+            }
+        }
+        self.pathMonitor.start(queue: self.pathMonitorQueue)
+    }
+
+    private func refreshPermissions() {
+        let permissions = self.currentPermissions()
+        // NOTE: Pushing permission updates mid-session requires gateway-side support.
+        // For now, just log the refresh. The permissions will be sent on next reconnect.
+        // Future enhancement: send permissions update event to active gateway session.
+        let keys = permissions.keys.sorted().joined(separator: ", ")
+        GatewayDiagnostics.log("Permissions refreshed on foreground: \(keys)")
     }
 }
 

@@ -64,6 +64,7 @@ struct OpenClawApp: App {
     @State private var appModel: NodeAppModel
     @State private var gatewayController: GatewayConnectionController
     @UIApplicationDelegateAdaptor(OpenClawAppDelegate.self) private var appDelegate
+    @State private var tunnelManager = TunnelManager()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -80,6 +81,7 @@ struct OpenClawApp: App {
                 .environment(self.appModel)
                 .environment(self.appModel.voiceWake)
                 .environment(self.gatewayController)
+                .environment(self.tunnelManager)
                 .task {
                     self.appDelegate.appModel = self.appModel
                 }
